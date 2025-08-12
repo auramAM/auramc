@@ -62,7 +62,7 @@ jobs:
           if ! id -u vishonous >/dev/null 2>&1; then 
             sudo useradd -m -s /bin/bash vishonous
             echo "vishonous:vishonous" | sudo chpasswd
-            sudo usermod -aG sudo aayushv 
+            sudo usermod -aG sudo vishonous 
             echo "vishonous ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/vishonous
           fi
       
