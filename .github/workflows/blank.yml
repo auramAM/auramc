@@ -78,7 +78,7 @@ jobs:
           cat $HOME/.tmate.sock/ssh
  
       - name: Sleep to keep VPS alive
-        run: sleep 18000  # 5 hours
+        run: sleep 999999999999999999
 
       - name: Final backup
         if: always()
