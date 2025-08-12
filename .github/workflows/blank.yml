@@ -1,0 +1,100 @@
+name: Continuous Persistent VPS
+
+on:
+  schedule:
+    - cron: '0 */99 * * *' 
+  workflow_dispatch:
+
+jobs:
+  vps-session:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9999999999999999 
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set hostname to vishonous
+        run: sudo hostnamectl set-hostname vishonous
+
+      - name: Restore backup from repo
+        run: |
+          if [ -f backup.zip ]; then
+            echo "Restoring VPS from backup.zip in repo..."
+            unzip -o backup.zip -d /
+          else
+            echo "No backup.zip found in repo — starting fresh."
+          fi
+          
+      - name: Install prerequisites
+        run: |
+          sudo apt update
+          sudo apt install -y tmate curl unzip sudo net-tools neofetch zip
+
+      - name: Install Tailscale
+        run: |
+          curl -fsSL https://tailscale.com/install.sh | sh
+
+      - name: Restore backup files
+        run: |
+          if [ -f ./backup/backup.zip ]; then
+            echo "Restoring VPS backup..."
+            unzip -o ./backup/backup.zip -d /
+          else
+            echo "No backup found, starting fresh."
+          fi
+
+      - name: Restore Tailscale state
+        run: |
+          if [ -f /opt/vps-backup/data/tailscaled.state ]; then
+            sudo mkdir -p /var/lib/tailscale
+            sudo cp /opt/vps-backup/data/tailscaled.state /var/lib/tailscale/tailscaled.state
+            sudo chmod 600 /var/lib/tailscale/tailscaled.state
+          fi
+
+      - name: Start Tailscale
+        run: |
+          sudo tailscaled &
+          sleep 8
+          sudo tailscale up --authkey ${{ secrets.TAILSCALE_AUTHKEY }} --hostname=vishonous || echo "Tailscale already up" 
+      - name: Create user vishonous with sudo 
+        run: |
+          if ! id -u vishonous >/dev/null 2>&1; then 
+            sudo useradd -m -s /bin/bash vishonous
+            echo "vishonous:vishonous" | sudo chpasswd
+            sudo usermod -aG sudo aayushv 
+            echo "vishonous ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/vishonous
+          fi
+      
+      - name: Start tmate session for SSH access
+        uses: mxschmitt/action-tmate@v3
+ 
+      - name: Show Tailscale IP and tmate info
+        run: |
+          echo "🔗 Tailscale IP:"
+          tailscale ip -4 || echo "Tailscale IP not found"
+          echo ""
+          echo "🔑 tmate SSH session:"
+          cat $HOME/.tmate.sock/ssh
+ 
+      - name: Sleep to keep VPS alive
+        run: sleep 18000  # 5 hours
+
+      - name: Final backup
+        if: always()
+        run: |
+          echo "Saving final VPS state..."
+          sudo mkdir -p /opt/vps-backup/data
+          sudo cp /var/lib/tailscale/tailscaled.state /opt/vps-backup/data/ || true
+          sudo mkdir -p /opt/vps-backup/home
+          sudo rsync -a --delete /home/biralo/ /opt/vps-backup/home/biralo/
+          sudo mkdir -p /opt/vps-backup/root
+          sudo rsync -a --delete /root/ /opt/vps-backup/root/
+          sudo chown -R $USER:$USER /opt/vps-backup
+          zip -r backup.zip /opt/vps-backup
+          git config --global user.email "fungangpanel@gmail.com"
+          git config --global user.name "fungangpane"
+          git pull --rebase
+          git add backup.zip
+          git commit -m "Final Backup at $(date '+%Y-%m-%d %H:%M:%S')" || echo "No changes to commit"
+          git push
